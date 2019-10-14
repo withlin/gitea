@@ -7,6 +7,7 @@ package models
 
 import (
 	"crypto/hmac"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
@@ -111,6 +112,7 @@ type Webhook struct {
 	OrgID        int64  `xorm:"INDEX"`
 	URL          string `xorm:"url TEXT"`
 	Signature    string `xorm:"TEXT"`
+	SignatureSha1 string `xorm:"TEXT"`
 	HTTPMethod   string `xorm:"http_method"`
 	ContentType  HookContentType
 	Secret       string `xorm:"TEXT"`
@@ -573,6 +575,7 @@ type HookTask struct {
 	Type            HookTaskType
 	URL             string `xorm:"TEXT"`
 	Signature       string `xorm:"TEXT"`
+	SignatureSha1       string `xorm:"TEXT"`
 	api.Payloader   `xorm:"-"`
 	PayloadContent  string `xorm:"TEXT"`
 	HTTPMethod      string `xorm:"http_method"`
@@ -754,12 +757,27 @@ func prepareWebhook(e Engine, w *Webhook, repo *Repository, event HookEventType,
 		signature = hex.EncodeToString(sig.Sum(nil))
 	}
 
+	var signatureSha1 string
+	if len(w.Secret) > 0 {
+		data, err := payloader.JSONPayload()
+		if err != nil {
+			log.Error("prepareWebhooks.JSONPayload: %v", err)
+		}
+		sig := hmac.New(sha1.New, []byte(w.Secret))
+		_, err = sig.Write(data)
+		if err != nil {
+			log.Error("prepareWebhooks.sigWrite: %v", err)
+		}
+		signatureSha1 = hex.EncodeToString(sig.Sum(nil))
+	}
+
 	if err = createHookTask(e, &HookTask{
 		RepoID:      repo.ID,
 		HookID:      w.ID,
 		Type:        w.HookTaskType,
 		URL:         w.URL,
 		Signature:   signature,
+		SignatureSha1: signatureSha1,
 		Payloader:   payloader,
 		HTTPMethod:  w.HTTPMethod,
 		ContentType: w.ContentType,
@@ -856,6 +874,7 @@ func (t *HookTask) deliver() error {
 	req.Header.Add("X-Gogs-Delivery", t.UUID)
 	req.Header.Add("X-Gogs-Event", string(t.EventType))
 	req.Header.Add("X-Gogs-Signature", t.Signature)
+	req.Header.Add("X-Hub-Signature", fmt.Sprintf("sha1=%v", t.SignatureSha1))
 	req.Header["X-GitHub-Delivery"] = []string{t.UUID}
 	req.Header["X-GitHub-Event"] = []string{string(t.EventType)}
 
