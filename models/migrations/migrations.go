@@ -254,6 +254,8 @@ var migrations = []Migration{
 	NewMigration("add original author name and id on migrated release", addOriginalAuthorOnMigratedReleases),
 	// v99 -> v100
 	NewMigration("add task table and status column for repository table", addTaskTable),
+	// v100 -> v101
+	NewMigration("rename signature column to support sha1 and sha256 webhook signatures", specifyWebhookSignatureType),
 }
 
 // Migrate database to current version
